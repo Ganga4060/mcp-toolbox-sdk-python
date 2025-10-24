@@ -1,10 +1,10 @@
-name: Export Build Logs(complete)
+name: Export Build Logs
 
 on:
   check_suite:
-    types: [completed]  # Triggers AFTER all Cloud Build checks complete
+    types: [completed]  
   workflow_dispatch:
-  pull_request:
+    
 jobs:
   detect-failing-tests:
     name: Detect Failing Tests
@@ -22,7 +22,7 @@ jobs:
         with:
           script: |
             try {
-              // Required Cloud Build checks (15 total)
+              // Required Cloud Build checks
               const requiredChecks = [
                 'core-python-sdk-pr-py313 (toolbox-testing-438616)',
                 'core-python-sdk-pr-py312 (toolbox-testing-438616)',
@@ -64,6 +64,20 @@ jobs:
                   (response) => response.data.check_runs
                 );
                 console.log(`Retrieved ${checks.length} total check runs`);
+                
+                // Print details of all existing checks
+                console.log('\n=== All Check Runs Found ===');
+                checks.forEach((check, index) => {
+                  if (check) {
+                    console.log(`\nCheck ${index + 1}:`);
+                    console.log(`  Name: ${check.name || 'N/A'}`);
+                    console.log(`  Status: ${check.status || 'N/A'}`);
+                    console.log(`  Conclusion: ${check.conclusion || 'N/A'}`);
+                    console.log(`  App: ${check.app?.name || 'N/A'}`);
+                    console.log(`  Details URL: ${check.details_url || 'N/A'}`);
+                  }
+                });
+                console.log('=== End Check Runs ===\n');
               } catch (error) {
                 console.error(`Error fetching checks: ${error.message}`);
                 core.setOutput('all_checks_complete', 'false');
@@ -103,13 +117,15 @@ jobs:
               }
               
               if (pendingChecks.length > 0) {
-                console.log(`⏳ Pending checks (${pendingChecks.length}): ${pendingChecks.slice(0, 5).join(', ')}${pendingChecks.length > 5 ? '...' : ''}`);
+
+                console.log(`Pending checks (${pendingChecks.length}): ${pendingChecks.slice(0, 5).join(', ')}${pendingChecks.length > 5 ? '...' : ''}`);
+
                 console.log('Not all Cloud Build checks are complete yet. Exiting...');
                 core.setOutput('all_checks_complete', 'false');
                 return;
               }
 
-              console.log('✓ All 15 Cloud Build checks are complete!');
+              console.log('All 15 Cloud Build checks are complete!');
               core.setOutput('all_checks_complete', 'true');
               core.setOutput('sha', sha);
               
@@ -150,6 +166,7 @@ jobs:
               }
 
               // Identify Cloud Build-related checks robustly
+
               const isCloudBuildCheck = (c) => {
                 if (!c) return false;
                 const name = (c.name || '');
@@ -190,7 +207,11 @@ jobs:
         run: |
           echo "Failed check data: ${{ steps.get_failed_checks.outputs.failed_check_data }}"
 
-# TODO: Add Step 2 (Extract Build IDs) after testing Step 1
-# TODO: Add Step 3 (Fetch Logs) after testing Step 2  
-# TODO: Add Step 4 (Summary) after testing Step 3
+
+# TODO: Add step 2(Extract Build IDs) 
+# TODO: Add step 3(Autheticate )
+# TODO: Add step 4(Fetch Logs)   
+
+
+ 
 
