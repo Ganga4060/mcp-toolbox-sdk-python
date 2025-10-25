@@ -21,7 +21,7 @@ jobs:
             try {
               const checkNames = [
                 'core-python-sdk-pr-py310',
-                'core-python-sdk-pr-py310 (gangothrinaini-playground)'
+                'core-python-sdk-pr-py310(gangothrinaini-playground)'
               ];
               const sha = context.payload.check_suite?.head_sha || context.sha;
               console.log(`Checking SHA: ${sha}`);
