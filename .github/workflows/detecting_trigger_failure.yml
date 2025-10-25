@@ -21,6 +21,7 @@ jobs:
             try {
               const checkNames = [
                 'core-python-sdk-pr-py310',
+                'core-python-sdk-pr-py310 (gangothrinaini-playground)',
                 'core-python-sdk-pr-py310(gangothrinaini-playground)'
               ];
               const sha = context.payload.check_suite?.head_sha || context.sha;
@@ -39,6 +40,12 @@ jobs:
                   (response) => response.data.check_runs
                 );
                 console.log(`Retrieved ${checks.length} total check runs`);
+                // Print all check run names for debugging
+                checks.forEach((check, idx) => {
+                  if (check && check.name) {
+                    console.log(`CheckRun[${idx}]: '${check.name}'`);
+                  }
+                });
               } catch (error) {
                 console.error(`Error fetching checks: ${error.message}`);
                 core.setOutput('failure_detected', 'false');
