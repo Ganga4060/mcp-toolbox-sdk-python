@@ -40,12 +40,19 @@ jobs:
                   (response) => response.data.check_runs
                 );
                 console.log(`Retrieved ${checks.length} total check runs`);
-                // Print all check run names for debugging
-                checks.forEach((check, idx) => {
-                  if (check && check.name) {
-                    console.log(`CheckRun[${idx}]: '${check.name}'`);
-                  }
-                });
+                // Print all check run names and full object for debugging
+                if (checks.length === 0) {
+                  console.log('No check runs found for this SHA.');
+                } else {
+                  checks.forEach((check, idx) => {
+                    if (check && check.name) {
+                      console.log(`CheckRun[${idx}]: '${check.name}'`);
+                      console.log(`CheckRun[${idx}] full object:`, JSON.stringify(check, null, 2));
+                    } else {
+                      console.log(`CheckRun[${idx}]:`, JSON.stringify(check, null, 2));
+                    }
+                  });
+                }
               } catch (error) {
                 console.error(`Error fetching checks: ${error.message}`);
                 core.setOutput('failure_detected', 'false');
@@ -58,7 +65,7 @@ jobs:
               );
 
               if (!targetCheck) {
-                console.log(`Check '${checkNames.join(" or ")}' not found.`);
+                console.log('No matching check found. All check runs for this SHA have been printed above.');
                 core.setOutput('failure_detected', 'false');
                 return;
               }
