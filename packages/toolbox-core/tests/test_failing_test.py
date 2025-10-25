@@ -4,7 +4,7 @@ import pytest
 
 def test_failing_with_logs():
     """
-    This test intentionally fails and prints logs to stdout and stderr.
+    This test intentionally fails and prints logs to stdout and stderr and test is for step2.
     """
     print("[LOG] This is a test log message to stdout.")
     print("[ERROR] Simulated error before failure.", file=sys.stderr)
