@@ -1,7 +1,7 @@
 name: Detect core-python-sdk-pr-py310 Failure
 
 on:
-  check_suite:
+  check_run:
     types: [completed]
   workflow_dispatch:
 
@@ -19,60 +19,29 @@ jobs:
         with:
           script: |
             try {
-              const checkNames = [
-                'core-python-sdk-pr-py310',
-                'core-python-sdk-pr-py310 (gangothrinaini-playground)',
-                'core-python-sdk-pr-py310(gangothrinaini-playground)'
-              ];
-              const sha = context.payload.check_suite?.head_sha || context.sha;
-              console.log(`Checking SHA: ${sha}`);
+              // Use the check_run event payload directly
+              const check = context.payload.check_run;
+              console.log('Received check_run event.');
+              console.log('Check run object:', JSON.stringify(check, null, 2));
 
-              // Get all check runs for this SHA
-              let checks = [];
-              try {
-                checks = await github.paginate(
-                  github.rest.checks.listForRef,
-                  {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: sha,
-                  },
-                  (response) => response.data.check_runs
-                );
-                console.log(`Retrieved ${checks.length} total check runs`);
-                // Print all check run names for debugging
-                checks.forEach((check, idx) => {
-                  if (check && check.name) {
-                    console.log(`CheckRun[${idx}]: '${check.name}'`);
-                  }
-                });
-              } catch (error) {
-                console.error(`Error fetching checks: ${error.message}`);
+              // Detect check runs whose name starts with 'core-python-sdk-pr-py310'
+              const isTargetCheck = check && check.name && check.name.startsWith('core-python-sdk-pr-py310');
+              if (!isTargetCheck) {
+                console.log(`This check run is not for core-python-sdk-pr-py310. Skipping. Name: '${check && check.name}'`);
                 core.setOutput('failure_detected', 'false');
                 return;
               }
 
-              // Find the specific check (match any of the possible names)
-              const targetCheck = checks.find(
-                (check) => check && checkNames.includes(check.name)
-              );
-
-              if (!targetCheck) {
-                console.log(`Check '${checkNames.join(" or ")}' not found.`);
-                core.setOutput('failure_detected', 'false');
-                return;
-              }
-
-              if (targetCheck.status === 'completed' && targetCheck.conclusion === 'failure') {
-                console.log(`Check '${targetCheck.name}' has failed.`);
+              if (check.status === 'completed' && check.conclusion === 'failure') {
+                console.log(`Check '${check.name}' has failed.`);
                 core.setOutput('failure_detected', 'true');
-                core.setOutput('name', targetCheck.name || 'Unknown');
-                core.setOutput('id', targetCheck.id || '');
-                core.setOutput('html_url', targetCheck.html_url || '');
-                core.setOutput('details_url', targetCheck.details_url || '');
-                core.setOutput('external_id', targetCheck.external_id || '');
+                core.setOutput('name', check.name || 'Unknown');
+                core.setOutput('id', check.id || '');
+                core.setOutput('html_url', check.html_url || '');
+                core.setOutput('details_url', check.details_url || '');
+                core.setOutput('external_id', check.external_id || '');
               } else {
-                console.log(`Check '${targetCheck.name}' has not failed.`);
+                console.log(`Check '${check.name}' has not failed.`);
                 core.setOutput('failure_detected', 'false');
               }
             } catch (error) {
