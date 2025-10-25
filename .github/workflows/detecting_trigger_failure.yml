@@ -59,3 +59,16 @@ jobs:
           echo "HTML URL: ${{ steps.detect_failure.outputs.html_url }}"
           echo "Details URL: ${{ steps.detect_failure.outputs.details_url }}"
           echo "External ID: ${{ steps.detect_failure.outputs.external_id }}"
+
+      - name: Parse build ID and project from details_url
+        if: steps.detect_failure.outputs.failure_detected == 'true'
+        id: parse_build_info
+        run: |
+          # Example details_url: https://console.cloud.google.com/cloud-build/builds/ab4172bf-4e33-4090-a422-898ff479e5f9?project=499546161157
+          details_url="${{ steps.detect_failure.outputs.details_url }}"
+          build_id=$(echo "$details_url" | sed -n 's#.*/builds/\([^?]*\).*#\1#p')
+          project_id=$(echo "$details_url" | sed -n 's#.*[?&]project=\([^&]*\).*#\1#p')
+          echo "Build ID: $build_id"
+          echo "Project ID: $project_id"
+          echo "build_id=$build_id" >> $GITHUB_OUTPUT
+          echo "project_id=$project_id" >> $GITHUB_OUTPUT
