@@ -1,4 +1,4 @@
-name: Detect core-python-sdk-pr-py310 Failure
+name: Detect core-python-sdk-pr-py310 Failure-step3
 
 on:
   check_run:
@@ -59,7 +59,7 @@ jobs:
           echo "HTML URL: ${{ steps.detect_failure.outputs.html_url }}"
           echo "Details URL: ${{ steps.detect_failure.outputs.details_url }}"
           echo "External ID: ${{ steps.detect_failure.outputs.external_id }}"
-
+      #step2
       - name: Parse build ID and project from details_url
         if: steps.detect_failure.outputs.failure_detected == 'true'
         id: parse_build_info
@@ -72,3 +72,39 @@ jobs:
           echo "Project ID: $project_id"
           echo "build_id=$build_id" >> $GITHUB_OUTPUT
           echo "project_id=$project_id" >> $GITHUB_OUTPUT
+      #step3
+      - name: Authenticate to Google Cloud
+
+        if: steps.detect_failure.outputs.failure_detected == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/499546161157/locations/global/workloadIdentityPools/workflow-testing/providers/github-OIDC-provider
+          service_account: cloudbuid-workflow-testing@gangothrinaini-playground.iam.gserviceaccount.com
+
+      - name: Fetch Cloud Build logs
+        if: steps.detect_failure.outputs.failure_detected == 'true'
+        id: fetch_cloud_build_logs
+        run: |
+          LOG_FILE="cloudbuild_error_logs.txt"
+          gcloud logging read "resource.type=cloud_build AND resource.labels.build_id=${{ steps.parse_build_info.outputs.build_id }}" \
+            --project=${{ steps.parse_build_info.outputs.project_id }} \
+            --format="text" > "${LOG_FILE}"
+
+          if [ ! -s "${LOG_FILE}" ]; then
+            echo "Warning: No specific logs found for build ID ${{ steps.parse_build_info.outputs.build_id }}. Fetching full build description instead."
+            gcloud builds describe "${{ steps.parse_build_info.outputs.build_id }}" \
+              --project=${{ steps.parse_build_info.outputs.project_id }} \
+              --format="yaml" > "cloudbuild_details.yaml"
+            echo "log_file_name=cloudbuild_details.yaml" >> $GITHUB_OUTPUT
+          else
+            echo "Logs successfully fetched to ${LOG_FILE}."
+            echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Logs as Artifact
+        if: steps.detect_failure.outputs.failure_detected == 'true' && steps.fetch_cloud_build_logs.outputs.log_file_name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-build-failure-logs-${{ steps.parse_build_info.outputs.build_id }}
+          path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
+          retention-days: 7
