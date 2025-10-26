@@ -67,8 +67,8 @@ jobs:
           # Example details_url: https://console.cloud.google.com/cloud-build/builds/ab4172bf-4e33-4090-a422-898ff479e5f9?project=499546161157
           details_url="${{ steps.detect_failure.outputs.details_url }}"
           build_id=$(echo "$details_url" | sed -n 's#.*/builds/\([^?]*\).*#\1#p')
-          # Set your actual project ID here or use a secret
-          project_id="${{ secrets.GCP_PROJECT_ID }}"
+          # Extract project_id from the service account key JSON
+          project_id=$(echo '${{ secrets.GCLOUD_SERVICE_KEY }}' | jq -r '.project_id')
           echo "Build ID: $build_id"
           echo "Project ID: $project_id"
           echo "build_id=$build_id" >> $GITHUB_OUTPUT
