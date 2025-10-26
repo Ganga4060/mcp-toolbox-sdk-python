@@ -78,8 +78,7 @@ jobs:
         if: steps.detect_failure.outputs.failure_detected == 'true'
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: projects/499546161157/locations/global/workloadIdentityPools/workflow-testing/providers/github-OIDC-provider
-          service_account: cloudbuid-workflow-testing@gangothrinaini-playground.iam.gserviceaccount.com
+          credentials_json: ${{ secrets.GCLOUD_SERVICE_KEY }}
 
       - name: Fetch Cloud Build logs
         if: steps.detect_failure.outputs.failure_detected == 'true'
