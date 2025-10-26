@@ -108,3 +108,43 @@ jobs:
           name: cloud-build-failure-logs-${{ steps.parse_build_info.outputs.build_id }}
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
+
+      # Option 1: Comment artifact link on PR
+      - name: Comment artifact link on PR
+        if: github.event.pull_request && steps.detect_failure.outputs.failure_detected == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const artifactUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `:mag: Cloud Build logs are available as an artifact [here](${artifactUrl})`
+            });
+
+      # Option 2: Update check run summary with artifact link
+      - name: Update check run summary with artifact link
+        if: steps.detect_failure.outputs.failure_detected == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const artifactUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            github.rest.checks.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              check_run_id: context.runId,
+              output: {
+                title: 'Cloud Build Logs Artifact',
+                summary: `:mag: [Download Cloud Build logs artifact](${artifactUrl})`
+              }
+            });
+
+      # Option 3: Upload logs to a GitHub Release (if tag present)
+      - name: Upload logs to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') && steps.fetch_cloud_build_logs.outputs.log_file_name != ''
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
+          name: cloud-build-failure-logs-${{ steps.parse_build_info.outputs.build_id }}
+          tag_name: ${{ github.ref_name }}
