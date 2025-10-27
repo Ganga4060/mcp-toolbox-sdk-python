@@ -7,11 +7,12 @@ on:
 
 jobs:
   detect-core-py310-failure:
-    name: Detect core-python-sdk-pr-py310 Failure
+    name: Detect core-python-sdk-pr-py310 Failure complete workflow
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: read
+      checks: write
+      issues: write
     steps:
       - name: Detect failing core-python-sdk-pr-py310 build
         id: detect_failure
@@ -86,20 +87,15 @@ jobs:
         id: fetch_cloud_build_logs
         run: |
           LOG_FILE="cloudbuild_error_logs.txt"
-          gcloud logging read "resource.type=cloud_build AND resource.labels.build_id=${{ steps.parse_build_info.outputs.build_id }}" \
-            --project=${{ steps.parse_build_info.outputs.project_id }} \
-            --format="text" > "${LOG_FILE}"
+          # Try to fetch logs using gcloud builds log 
+          gcloud builds log "${{ steps.parse_build_info.outputs.build_id }}" \
+            --project="${{ steps.parse_build_info.outputs.project_id }}" > "${LOG_FILE}" 2>&1 || true
 
           if [ ! -s "${LOG_FILE}" ]; then
-            echo "Warning: No specific logs found for build ID ${{ steps.parse_build_info.outputs.build_id }}. Fetching full build description instead."
-            gcloud builds describe "${{ steps.parse_build_info.outputs.build_id }}" \
-              --project=${{ steps.parse_build_info.outputs.project_id }} \
-              --format="yaml" > "cloudbuild_details.yaml"
-            echo "log_file_name=cloudbuild_details.yaml" >> $GITHUB_OUTPUT
-          else
-            echo "Logs successfully fetched to ${LOG_FILE}."
-            echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
+            echo "Warning: No logs found with gcloud builds log. See the web UI for full logs:" > "${LOG_FILE}"
+            echo "Log URL: ${{ steps.detect_failure.outputs.details_url }}" >> "${LOG_FILE}"
           fi
+          echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
 
       - name: Upload Logs as Artifact
         if: steps.detect_failure.outputs.failure_detected == 'true' && steps.fetch_cloud_build_logs.outputs.log_file_name != ''
@@ -109,42 +105,4 @@ jobs:
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
 
-      # Option 1: Comment artifact link on PR
-      - name: Comment artifact link on PR
-        if: github.event.pull_request && steps.detect_failure.outputs.failure_detected == 'true'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const artifactUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `:mag: Cloud Build logs are available as an artifact [here](${artifactUrl})`
-            });
-
-      # Option 2: Update check run summary with artifact link
-      - name: Update check run summary with artifact link
-        if: steps.detect_failure.outputs.failure_detected == 'true'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const artifactUrl = `https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: context.runId,
-              output: {
-                title: 'Cloud Build Logs Artifact',
-                summary: `:mag: [Download Cloud Build logs artifact](${artifactUrl})`
-              }
-            });
-
-      # Option 3: Upload logs to a GitHub Release (if tag present)
-      - name: Upload logs to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') && steps.fetch_cloud_build_logs.outputs.log_file_name != ''
-        uses: softprops/action-gh-release@v1
-        with:
-          files: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
-          name: cloud-build-failure-logs-${{ steps.parse_build_info.outputs.build_id }}
-          tag_name: ${{ github.ref_name }}
+      
