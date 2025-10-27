@@ -9,5 +9,5 @@ def test_failing_with_logs():
     print("[LOG] .....This is a test log message to stdout updated test.")
     print("[ERROR] Simulated error before failure.", file=sys.stderr)
     print("[WARN] This is a warning log.")
-    print("[DEBUG] Debugging details here.")
+    print("[DEBUG] Debugging details here. and fetch error logs only")
     pytest.fail("Intentional failure for workflow and log extraction testing.")
