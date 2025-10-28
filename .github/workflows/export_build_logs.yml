@@ -1,24 +1,23 @@
-
 name: Export Cloud Build Failure Logs
 
+# This trigger fires ONCE after all checks for a commit are complete.
 on:
-  workflow_run:
-    workflows: ["Cloud Build"]
-    types:
-      - completed
+  check_suite:
+    types: [completed]
+  # Allows for manual runs from the Actions tab.
   workflow_dispatch:
 
 jobs:
+  #step1: Find any and all failures that match our prefixes.
   detect-build-failure:
-    name: Detect Cloud Build Failure (all triggers)
+    name: Detect Cloud Build Failures
     runs-on: ubuntu-latest
-    env:
-      GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
     permissions:
       contents: read
-      checks: write
-      issues: write
+      checks: read   # Required to read the status of checks
+      issues: write # Required later for posting comments
     outputs:
+      # This output will be a JSON string of all failed builds
       failure_detected: ${{ steps.detect_failures.outputs.failure_detected }}
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
     steps:
@@ -26,36 +25,50 @@ jobs:
         id: detect_failures
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            // Define all the prefixes you want to monitor
             const prefixes = [
               'core-python-sdk-pr-',
               'langchain-python-sdk-pr-',
               'llamaindex-python-sdk-pr-',
             ];
-            const pr = context.payload.workflow_run.pull_requests[0];
-            if (!pr) {
+
+            const prList = context.payload.check_suite.pull_requests;
+            if (!prList || prList.length === 0) {
+              core.info('No PR found for this check suite. Skipping.');
               core.setOutput('failure_detected', 'false');
               return;
             }
+
             const { owner, repo } = context.repo;
-            const sha = context.payload.workflow_run.head_sha;
+            const sha = context.payload.check_suite.head_sha;
+
+            // Get the list of all checks for the commit
             const checks = await github.rest.checks.listForRef({
               owner,
               repo,
               ref: sha,
               per_page: 100
             });
+
+            // Filter that list for checks that match ANY of our prefixes AND have failed
             const failed = checks.data.check_runs.filter(
               c =>
                 prefixes.some(prefix => c.name.startsWith(prefix)) &&
                 c.status === 'completed' &&
                 c.conclusion === 'failure'
             );
+
             if (failed.length === 0) {
+              core.info('No failed Cloud Build checks detected.');
               core.setOutput('failure_detected', 'false');
               return;
             }
+
+            core.info(`Detected ${failed.length} failed build(s).`);
             core.setOutput('failure_detected', 'true');
+            // Output the list of failed builds as a JSON string for the next job
             core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({
               name: f.name,
               id: f.id,
@@ -64,39 +77,26 @@ jobs:
               external_id: f.external_id || ''
             }))));
 
-
-      - name: Set matrix for failed builds
-        if: steps.detect_failures.outputs.failure_detected == 'true'
-        id: set_matrix
-        run: |
-          echo "MATRIX={\"include\":$(echo '${{ steps.detect_failures.outputs.failed_checks }}') }" >> $GITHUB_OUTPUT
-
+  # step 2: Process each failure found in Job 1.
   process-failed-builds:
+    # This job depends on the successful completion of the detection job.
     needs: detect-build-failure
+    # Only run this job if the first job actually found failures.
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
     runs-on: ubuntu-latest
     env:
       GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
     strategy:
+      # This is the magic: It creates parallel jobs from the JSON output of the first job.
       matrix: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
     steps:
-      - name: Print failed build info
-        run: |
-          echo "Cloud Build check failed!"
-          echo "Name: ${{ matrix.name }}"
-          echo "ID: ${{ matrix.id }}"
-          echo "HTML URL: ${{ matrix.html_url }}"
-          echo "Details URL: ${{ matrix.details_url }}"
-          echo "External ID: ${{ matrix.external_id }}"
-
       - name: Parse build ID and set project ID
         id: parse_build_info
         run: |
           details_url="${{ matrix.details_url }}"
           build_id=$(echo "$details_url" | sed -n 's#.*/builds/\([^?]*\).*#\1#p')
-          project_id=$(echo "$GCLOUD_SERVICE_KEY" | jq -r '.project_id')
+          project_id=$(echo '${{ env.GCLOUD_SERVICE_KEY }}' | jq -r '.project_id')
           echo "Build ID: $build_id"
-          echo "Project ID: $project_id"
           echo "build_id=$build_id" >> $GITHUB_OUTPUT
           echo "project_id=$project_id" >> $GITHUB_OUTPUT
 
@@ -119,56 +119,83 @@ jobs:
           echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
 
       - name: Upload Logs as Artifact
-        if: steps.fetch_cloud_build_logs.outputs.log_file_name != ''
         uses: actions/upload-artifact@v4
         with:
-          name: cloud-build-failure-logs-${{ steps.parse_build_info.outputs.build_id }}
+          name: logs-${{ matrix.name }}-${{ steps.parse_build_info.outputs.build_id }}
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
 
+  # step 3: Post one final comment summarizing everything.
   post-pr-comment:
-    needs: process-failed-builds
+    needs: [detect-build-failure, process-failed-builds]
     runs-on: ubuntu-latest
+    # Run this job even if some of the log-fetching jobs failed, but ONLY if failures were detected initially.
     if: always() && needs.detect-build-failure.outputs.failure_detected == 'true'
+    permissions:
+      actions: read   # Permission to list artifacts from the run
+      issues: write  # Permission to post comments
     steps:
       - name: Compose and post PR comment with artifact links
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // List all workflow run artifacts
             const { owner, repo } = context.repo;
-            const pr = context.payload.workflow_run.pull_requests[0];
-            if (!pr) {
+            const prList = context.payload.check_suite.pull_requests;
+            if (!prList || prList.length === 0) {
               core.info('No PR found, skipping comment.');
               return;
             }
-            const run_id = context.payload.workflow_run.id;
-            // Get all artifacts for this run
+            const pr = prList[0];
+            const run_id = context.runId;
+
+            // List artifacts for this workflow run
             const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
               owner,
               repo,
               run_id
             });
+
             if (!artifacts.data.artifacts.length) {
-              core.info('No artifacts found.');
+              core.info('No artifacts found to link in comment.');
               return;
             }
-            // Compose markdown with artifact links
-            let body = '### :warning: Cloud Build Failure Logs\n';
-            body += 'The following Cloud Build jobs failed. Download logs for details.\n\n';
+
+            // Compose the comment body with direct artifact download links
+            let body = '### :warning: Cloud Build Failure\n\n';
+            body += 'One or more Cloud Build jobs failed. Download the log artifacts below for details:\n\n';
             for (const artifact of artifacts.data.artifacts) {
-              const name = artifact.name;
-              const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}`;
-              body += `- [${name}](${url})\n`;
+              // Direct download link for artifact (requires authentication)
+              const downloadUrl = artifact.archive_download_url;
+              body += `- **${artifact.name}:** [Download Logs](${downloadUrl})\n`;
             }
-            body += '\n---\n';
-            body += 'This comment was generated automatically by the export_build_logs workflow.';
-            // Post comment to PR
-            await github.rest.issues.createComment({
+            body += '\n---\n*This comment was automatically generated by the CI workflow.*';
+
+            // Try to find an existing bot comment to update (avoid duplicates)
+            const comments = await github.rest.issues.listComments({
               owner,
               repo,
               issue_number: pr.number,
-              body
+              per_page: 100
             });
-
-      
+            const botLogin = context.actor;
+            const existing = comments.data.find(c =>
+              c.user && c.user.login === botLogin && c.body && c.body.includes('Cloud Build Failure')
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body
+              });
+              core.info('Updated existing bot comment.');
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body
+              });
+              core.info('Posted new bot comment.');
+            }
