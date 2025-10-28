@@ -67,6 +67,8 @@ jobs:
             }
 
             core.info(`Detected ${failed.length} failed build(s).`);
+            core.info('Failing build checks:');
+            failed.forEach(f => core.info(`- ${f.name}`));
             core.setOutput('failure_detected', 'true');
             // Output the list of failed builds as a JSON string for the next job
             core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({
