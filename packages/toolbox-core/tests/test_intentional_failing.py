@@ -5,4 +5,4 @@ def intentional_fail_test():
     3. Failed check information is correctly extracted or not 
 
     """
-    assert False, "Intentional failure to test Export Cloud Build Failure Logs"
+    assert False, "Intentional failure to test Exporting Cloud Build Failure Logs"
