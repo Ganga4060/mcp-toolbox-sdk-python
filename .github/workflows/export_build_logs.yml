@@ -89,8 +89,9 @@ jobs:
     env:
       GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
     strategy:
-      # This is the magic: It creates parallel jobs from the JSON output of the first job.
-      matrix: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
+      # It creates parallel jobs from the JSON output of the first job.
+      matrix:
+        include: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
     steps:
       - name: Parse build ID and set project ID
         id: parse_build_info
