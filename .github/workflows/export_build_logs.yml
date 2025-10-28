@@ -149,6 +149,6 @@ jobs:
             }
             core.info('Artifacts for failing build checks:');
             for (const artifact of artifacts.data.artifacts) {
-              const downloadUrl = artifact.archive_download_url;
+              const downloadUrl = `https://github.com/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
               core.info(`- ${artifact.name}: ${downloadUrl}`);
             }
