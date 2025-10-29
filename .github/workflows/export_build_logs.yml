@@ -194,7 +194,7 @@ jobs:
             });
             const botLogin = 'Ganga4060';
             const existing = comments.data.find(c =>
-              c.user && c.user.login === botLogin && c.body && c.body.includes('Error log artifacts:')
+              c.user && c.user.login === botLogin && c.body && c.body.includes('**Download Error logs:**')
             );
 
             if (logArtifacts.length > 0) {
