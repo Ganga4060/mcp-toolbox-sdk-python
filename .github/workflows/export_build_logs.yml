@@ -192,7 +192,7 @@ jobs:
               issue_number: prNumber,
               per_page: 100
             });
-            const botLogin = context.actor;
+            const botLogin = 'Ganga4060';
             const existing = comments.data.find(c =>
               c.user && c.user.login === botLogin && c.body && c.body.includes('Error log artifacts:')
             );
