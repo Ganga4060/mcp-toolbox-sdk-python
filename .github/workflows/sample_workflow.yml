@@ -1,0 +1,32 @@
+
+name: "PR Comment After Check Suite"
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+on:
+  check_suite:
+    types: [completed]
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post a comment on the PR (if available)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prList = context.payload.check_suite.pull_requests;
+            if (!prList || prList.length === 0) {
+              core.info('No PR found for this check suite. Skipping comment.');
+              return;
+            }
+            const prNumber = prList[0].number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: "🚀 Hello from a GitHub Actions bot! This is an automated PR comment after check suite completion."
+            });
