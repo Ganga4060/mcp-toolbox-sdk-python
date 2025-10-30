@@ -1,23 +1,24 @@
 name: Export Cloud Build Failure Logs
 
-# This trigger fires ONCE after all checks for a commit are complete.
+# This trigger fires automatically when all checks for a commit are complete.
 on:
   check_suite:
     types: [completed]
-  # Allows for manual runs from the Actions tab.
-  workflow_dispatch:
+
+# Prevents race conditions from multiple rapid commits on the same PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  #step1: Find any and all failures that match our prefixes.
+  # STEP 1: Find any and all failures that match our prefixes.
   detect-build-failure:
     name: Detect Cloud Build Failures
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      checks: read   # Required to read the status of checks
-      issues: write # Required later for posting comments
+      checks: read
     outputs:
-      # This output will be a JSON string of all failed builds
       failure_detected: ${{ steps.detect_failures.outputs.failure_detected }}
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
       pr_number: ${{ steps.detect_failures.outputs.pr_number }}
@@ -28,76 +29,45 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-
-            // Define all the prefixes you want to monitor
             const prefixes = [
               'core-python-sdk-pr-',
               'langchain-python-sdk-pr-',
               'llamaindex-python-sdk-pr-',
             ];
-
-            // Robustly check for PR context
-            if (!context.payload.check_suite || !context.payload.check_suite.pull_requests || context.payload.check_suite.pull_requests.length === 0) {
+            const prList = context.payload.check_suite.pull_requests;
+            if (!prList || prList.length === 0) {
               core.info('No PR found for this check suite. Skipping.');
               core.setOutput('failure_detected', 'false');
-              core.setOutput('pr_number', '');
               return;
             }
-
-            const prList = context.payload.check_suite.pull_requests;
             const pr_number = prList[0].number;
-
+            core.setOutput('pr_number', pr_number.toString());
             const { owner, repo } = context.repo;
             const sha = context.payload.check_suite.head_sha;
-
-            // Get the list of all checks for the commit
-            const checks = await github.rest.checks.listForRef({
-              owner,
-              repo,
-              ref: sha,
-              per_page: 100
-            });
-
-            // Filter that list for checks that match ANY of our prefixes AND have failed
-            const failed = checks.data.check_runs.filter(
+            const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
+            const failed = checks.check_runs.filter(
               c =>
                 prefixes.some(prefix => c.name.startsWith(prefix)) &&
                 c.status === 'completed' &&
                 c.conclusion === 'failure'
             );
-
             if (failed.length === 0) {
               core.info('No failed Cloud Build checks detected.');
               core.setOutput('failure_detected', 'false');
-              core.setOutput('pr_number', pr_number.toString());
               return;
             }
-
             core.info(`Detected ${failed.length} failed build(s).`);
-            core.info('Failing build checks:');
-            failed.forEach(f => core.info(`- ${f.name}`));
             core.setOutput('failure_detected', 'true');
-            // Output the list of failed builds as a JSON string for the next job
-            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({
-              name: f.name,
-              id: f.id,
-              html_url: f.html_url,
-              details_url: f.details_url,
-              external_id: f.external_id || ''
-            }))));
-            core.setOutput('pr_number', pr_number.toString());
+            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
 
-  # step 2: Process each failure found in Job 1.
+  # STEP 2: Process each failure found in Job 1.
   process-failed-builds:
-    # This job depends on the successful completion of the detection step.
     needs: detect-build-failure
-    # Only run this job if the first job actually found failures.
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
     runs-on: ubuntu-latest
     env:
       GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
     strategy:
-      # It creates parallel jobs from the JSON output of the first job.
       matrix:
         include: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
     steps:
@@ -110,138 +80,23 @@ jobs:
           echo "Build ID: $build_id"
           echo "build_id=$build_id" >> $GITHUB_OUTPUT
           echo "project_id=$project_id" >> $GITHUB_OUTPUT
-
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ env.GCLOUD_SERVICE_KEY }}
-
       - name: Fetch Cloud Build logs
         id: fetch_cloud_build_logs
         run: |
           LOG_FILE="cloudbuild_error_logs.txt"
-          gcloud builds log "${{ steps.parse_build_info.outputs.build_id }}" \
-            --project="${{ steps.parse_build_info.outputs.project_id }}" > "${LOG_FILE}" 2>&1 || true
-
+          gcloud builds log "${{ steps.parse_build_info.outputs.build_id }}" --project="${{ steps.parse_build_info.outputs.project_id }}" > "${LOG_FILE}" 2>&1 || true
           if [ ! -s "${LOG_FILE}" ]; then
-            echo "Warning: No logs found with gcloud builds log. See the web UI for full logs:" > "${LOG_FILE}"
+            echo "Warning: No logs found with gcloud builds log." > "${LOG_FILE}"
             echo "Log URL: ${{ matrix.details_url }}" >> "${LOG_FILE}"
           fi
           echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
-
       - name: Upload Logs as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ matrix.name }}-${{ steps.parse_build_info.outputs.build_id }}
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
-
-
-  # step 3: Gather and print artifact summary 
-  gather-artifacts-summary:
-    needs: [process-failed-builds]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Print artifact links using GitHub API
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const { owner, repo } = context.repo;
-            const run_id = context.runId;
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
-              if (!artifacts.data.artifacts.length) {
-                core.info('No artifacts found.');
-                return;
-              }
-              let body = '🔗 **Error log artifacts:**\n';
-              for (const artifact of artifacts.data.artifacts) {
-                const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
-                body += `- [${artifact.name}](${url})\n`;
-              }
-              
-              core.info(body);
-    # step 4: Post comment on the PR with links to all artifacts.
-  post-pr-comment:
-    needs: [detect-build-failure, process-failed-builds, gather-artifacts-summary]
-    runs-on: ubuntu-latest
-    if: always() 
-    permissions:
-      actions: read   
-      issues: write  
-    steps:
-      - name: Compose and post PR comment with artifact links
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_BOT_TOKEN }}
-          script: |
-            // Try to get PR number from needs.detect-build-failure.outputs.pr_number
-            let prNumber = '${{ needs.detect-build-failure.outputs.pr_number }}';
-            // If not available, try to extract from event payload (for check_suite or workflow_dispatch)
-            if (!prNumber || prNumber === '' || prNumber === 'null' || prNumber === 'undefined') {
-              if (context.payload.pull_request && context.payload.pull_request.number) {
-                prNumber = context.payload.pull_request.number;
-              } else if (context.payload.check_suite && context.payload.check_suite.pull_requests && context.payload.check_suite.pull_requests.length > 0) {
-                prNumber = context.payload.check_suite.pull_requests[0].number;
-              } else {
-                core.info('No PR number found, skipping comment.');
-                return;
-              }
-            }
-            const { owner, repo } = context.repo;
-            const run_id = context.runId;
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
-            const logArtifacts = artifacts.data.artifacts.filter(a => a.name.startsWith('logs-'));
-
-            const comments = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100
-            });
-            const botLogin = 'Ganga4060';
-            const existing = comments.data.find(c =>
-              c.user && c.user.login === botLogin && c.body && c.body.includes('**Download Error logs:**')
-            );
-
-            if (logArtifacts.length > 0) {
-              // There are failing tests, so post or update the comment
-              let body = '🔗 **Download Error logs:**\n';
-              for (const artifact of logArtifacts) {
-                // Use only the artifact name as the link text for readability
-                const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
-                const closingParenIndex = artifact.name.lastIndexOf(')');
-                const displayName = (closingParenIndex !== -1) 
-                ? artifact.name.substring(0, closingParenIndex + 1) 
-                : artifact.name;
-                body += `- [${displayName}](${url})\n`;
-              }
-              if (existing) {
-                await github.rest.issues.updateComment({
-                  owner,
-                  repo,
-                  comment_id: existing.id,
-                  body
-                });
-                core.info('Updated existing bot comment.');
-              } else {
-                await github.rest.issues.createComment({
-                  owner,
-                  repo,
-                  issue_number: prNumber,
-                  body
-                });
-                core.info('Posted new bot comment.');
-              }
-            } else if (existing) {
-              // All tests pass, so delete the previous artifact comment
-              await github.rest.issues.deleteComment({
-                owner,
-                repo,
-                comment_id: existing.id
-              });
-              core.info('Deleted previous artifact comment as all tests now pass.');
-            } else {
-              core.info('No artifact comment to update or delete.');
-            }
