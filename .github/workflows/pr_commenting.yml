@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     # Run only if the first workflow was associated with a PR.
     # This simplified condition is robust and correct.
-    if: github.event.workflow_run.pull_requests.length > 0
     permissions:
       # This job needs permission to read artifacts and write to issues/PRs.
       actions: read
