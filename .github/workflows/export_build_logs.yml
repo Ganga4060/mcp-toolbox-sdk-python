@@ -28,6 +28,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+
             // Define all the prefixes you want to monitor
             const prefixes = [
               'core-python-sdk-pr-',
@@ -35,14 +36,15 @@ jobs:
               'llamaindex-python-sdk-pr-',
             ];
 
-            const prList = context.payload.check_suite.pull_requests;
-            if (!prList || prList.length === 0) {
+            // Robustly check for PR context
+            if (!context.payload.check_suite || !context.payload.check_suite.pull_requests || context.payload.check_suite.pull_requests.length === 0) {
               core.info('No PR found for this check suite. Skipping.');
               core.setOutput('failure_detected', 'false');
               core.setOutput('pr_number', '');
               return;
             }
 
+            const prList = context.payload.check_suite.pull_requests;
             const pr_number = prList[0].number;
 
             const { owner, repo } = context.repo;
