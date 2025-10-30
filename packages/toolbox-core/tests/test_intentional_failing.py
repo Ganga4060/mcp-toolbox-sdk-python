@@ -1,4 +1,3 @@
-
 def test_intentional_fail():
     """This test is intentionally failing to validate that:
     1. Cloud Build checks fail as expected
