@@ -166,7 +166,7 @@ jobs:
   post-pr-comment:
     needs: [detect-build-failure, process-failed-builds, gather-artifacts-summary]
     runs-on: ubuntu-latest
-    if: always() && needs.detect-build-failure.outputs.failure_detected == 'true'
+    if: always() 
     permissions:
       actions: read   
       issues: write  
