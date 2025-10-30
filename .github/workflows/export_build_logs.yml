@@ -137,7 +137,7 @@ jobs:
           retention-days: 7
 
 
-  # step 3: Gather and print artifact summary 
+  # step 3: Gather and print artifact summary for all failed builds.
   gather-artifacts-summary:
     needs: [process-failed-builds]
     runs-on: ubuntu-latest
