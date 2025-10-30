@@ -109,7 +109,6 @@ jobs:
         with:
           github-token: ${{ secrets.GH_BOT_TOKEN }}
           script: |
-            // This script is now guaranteed to run if a PR number was found.
             const prNumber = process.env.PR_NUMBER;
             if (!prNumber) {
               core.info('No PR number found, skipping comment.');
