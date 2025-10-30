@@ -89,7 +89,7 @@ jobs:
 
   # step 2: Process each failure found in Job 1.
   process-failed-builds:
-    # This job depends on the successful completion of the detection step.
+    # This job depends on the successful completion of the detection .
     needs: detect-build-failure
     # Only run this job if the first job actually found failures.
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
