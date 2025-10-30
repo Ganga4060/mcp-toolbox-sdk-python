@@ -1,6 +1,6 @@
 name: Export Cloud Build Failure Logs
 
-# This trigger fires automatically when all checks for a commit are complete.
+# This trigger fires ONCE after all checks for a commit are complete.
 on:
   check_suite:
     types: [completed]
@@ -23,42 +23,66 @@ jobs:
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
       pr_number: ${{ steps.detect_failures.outputs.pr_number }}
     steps:
+      # THIS IS THE SINGLE, CORRECTED STEP
       - name: Detect all failed Cloud Build checks
-        id: detect_failures
+        id: detect_failures # The unique ID for this step
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            // Debug: print the event payload
+            core.info('DEBUG: context.payload=' + JSON.stringify(context.payload, null, 2));
+
             const prefixes = [
               'core-python-sdk-pr-',
               'langchain-python-sdk-pr-',
               'llamaindex-python-sdk-pr-',
             ];
-            const prList = context.payload.check_suite.pull_requests;
-            if (!prList || prList.length === 0) {
-              core.info('No PR found for this check suite. Skipping.');
+
+            let pr_number = '';
+            if (context.payload.check_suite && context.payload.check_suite.pull_requests && context.payload.check_suite.pull_requests.length > 0) {
+              pr_number = context.payload.check_suite.pull_requests[0].number;
+            } else {
+              core.info('DEBUG: No PR found for this check suite. Skipping.');
               core.setOutput('failure_detected', 'false');
+              core.setOutput('pr_number', '');
               return;
             }
-            const pr_number = prList[0].number;
+            core.info('DEBUG: Detected PR number: ' + pr_number);
             core.setOutput('pr_number', pr_number.toString());
+
             const { owner, repo } = context.repo;
             const sha = context.payload.check_suite.head_sha;
-            const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
+
+            const { data: checks } = await github.rest.checks.listForRef({
+              owner, repo, ref: sha, per_page: 100
+            });
+            core.info('DEBUG: checks=' + JSON.stringify(checks, null, 2));
+
             const failed = checks.check_runs.filter(
               c =>
                 prefixes.some(prefix => c.name.startsWith(prefix)) &&
                 c.status === 'completed' &&
                 c.conclusion === 'failure'
             );
+
             if (failed.length === 0) {
               core.info('No failed Cloud Build checks detected.');
               core.setOutput('failure_detected', 'false');
               return;
             }
+
             core.info(`Detected ${failed.length} failed build(s).`);
+            core.info('Failing build checks:');
+            failed.forEach(f => core.info(`- ${f.name}`));
             core.setOutput('failure_detected', 'true');
-            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
+            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({
+              name: f.name,
+              id: f.id,
+              html_url: f.html_url,
+              details_url: f.details_url,
+              external_id: f.external_id || ''
+            }))));
 
   # STEP 2: Process each failure found in Job 1.
   process-failed-builds:
