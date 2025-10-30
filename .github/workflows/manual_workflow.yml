@@ -93,12 +93,13 @@ jobs:
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
 
-  # STEP 3: Post a comment on the PR with links to all artifacts.
+  # step 4: Post a single, final comment on the PR with links to all artifacts.
   post-pr-comment:
-    needs: [detect-build-failure, process-failed-builds]
+    needs: [detect-build-failure, process-failed-builds] # You can remove gather-artifacts-summary
     runs-on: ubuntu-latest
     if: always()
     permissions:
+      actions: read 
       issues: write  
     steps:
       - name: Compose and post PR comment with artifact links
@@ -108,6 +109,7 @@ jobs:
         with:
           github-token: ${{ secrets.GH_BOT_TOKEN }}
           script: |
+            // This script is now guaranteed to run if a PR number was found.
             const prNumber = process.env.PR_NUMBER;
             if (!prNumber) {
               core.info('No PR number found, skipping comment.');
@@ -117,10 +119,17 @@ jobs:
             const run_id = context.runId;
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
             const logArtifacts = artifacts.artifacts.filter(a => a.name.startsWith('logs-'));
-            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNumber });
-            const botLogin = 'Ganga4060'; // Your bot's username
-            const existing = comments.find(c => c.body && c.body.includes('**Download Error logs:**'));
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: prNumber
+            });
+            const botLogin = 'Ganga4060';
+            const existing = comments.find(c =>
+              c.user && c.user.login === botLogin && c.body && c.body.includes('**Download Error logs:**')
+            );
+
             if (logArtifacts.length > 0) {
+              // Post or update the failure comment
               let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
                 const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/#artifacts`;
@@ -130,9 +139,14 @@ jobs:
               }
               if (existing) {
                 await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                core.info('Updated existing bot comment.');
               } else {
                 await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                core.info('Posted new bot comment.');
               }
             } else if (existing) {
               await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+              core.info('Deleted previous artifact comment as all tests now pass.');
+            } else {
+              core.info('No artifact comment to update or delete.');
             }
