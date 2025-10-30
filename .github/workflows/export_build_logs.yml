@@ -60,7 +60,7 @@ jobs:
             core.setOutput('failure_detected', 'true');
             core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
 
-  # STEP 2: Process each failure found in Job 1.
+  # STEP 2: Process each failure found in Job 1
   process-failed-builds:
     needs: detect-build-failure
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
