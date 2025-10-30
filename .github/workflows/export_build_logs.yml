@@ -162,7 +162,7 @@ jobs:
               }
               
               core.info(body);
-    # step 4: Post comment on the PR with links to all artifacts.
+    # step 4: Post comment on the PR with links to all artifacts with all edge cases.
   post-pr-comment:
     needs: [detect-build-failure, process-failed-builds, gather-artifacts-summary]
     runs-on: ubuntu-latest
