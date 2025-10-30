@@ -29,8 +29,25 @@ jobs:
             // Debug: print the entire event payload for inspection
             core.info('DEBUG: workflow_run payload=' + JSON.stringify(context.payload, null, 2));
 
-            // The workflow_run event payload contains all the info we need.
-            const prNumber = context.payload.workflow_run.pull_requests[0].number;
+            // Robust PR number extraction
+            let prNumber;
+            if (context.payload.workflow_run.pull_requests && context.payload.workflow_run.pull_requests.length > 0) {
+              prNumber = context.payload.workflow_run.pull_requests[0].number;
+            } else {
+              // Fallback: find PR by branch name
+              const { data: prs } = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: "open",
+                head: `${owner}:${context.payload.workflow_run.head_branch}`,
+              });
+              if (prs.length > 0) {
+                prNumber = prs[0].number;
+              } else {
+                core.info("No PR found for this workflow run.");
+                return;
+              }
+            }
             const source_run_id = context.payload.workflow_run.id;
 
             // Get the artifacts from the run that triggered this workflow.
