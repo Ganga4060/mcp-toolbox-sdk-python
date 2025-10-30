@@ -23,66 +23,42 @@ jobs:
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
       pr_number: ${{ steps.detect_failures.outputs.pr_number }}
     steps:
-      # THIS IS THE SINGLE, CORRECTED STEP
       - name: Detect all failed Cloud Build checks
-        id: detect_failures # The unique ID for this step
+        id: detect_failures
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Debug: print the event payload
-            core.info('DEBUG: context.payload=' + JSON.stringify(context.payload, null, 2));
-
             const prefixes = [
               'core-python-sdk-pr-',
               'langchain-python-sdk-pr-',
               'llamaindex-python-sdk-pr-',
             ];
-
-            let pr_number = '';
-            if (context.payload.check_suite && context.payload.check_suite.pull_requests && context.payload.check_suite.pull_requests.length > 0) {
-              pr_number = context.payload.check_suite.pull_requests[0].number;
-            } else {
-              core.info('DEBUG: No PR found for this check suite. Skipping.');
+            const prList = context.payload.check_suite.pull_requests;
+            if (!prList || prList.length === 0) {
+              core.info('No PR found for this check suite. Skipping.');
               core.setOutput('failure_detected', 'false');
-              core.setOutput('pr_number', '');
               return;
             }
-            core.info('DEBUG: Detected PR number: ' + pr_number);
+            const pr_number = prList[0].number;
             core.setOutput('pr_number', pr_number.toString());
-
             const { owner, repo } = context.repo;
             const sha = context.payload.check_suite.head_sha;
-
-            const { data: checks } = await github.rest.checks.listForRef({
-              owner, repo, ref: sha, per_page: 100
-            });
-            core.info('DEBUG: checks=' + JSON.stringify(checks, null, 2));
-
+            const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
             const failed = checks.check_runs.filter(
               c =>
                 prefixes.some(prefix => c.name.startsWith(prefix)) &&
                 c.status === 'completed' &&
                 c.conclusion === 'failure'
             );
-
             if (failed.length === 0) {
               core.info('No failed Cloud Build checks detected.');
               core.setOutput('failure_detected', 'false');
               return;
             }
-
             core.info(`Detected ${failed.length} failed build(s).`);
-            core.info('Failing build checks:');
-            failed.forEach(f => core.info(`- ${f.name}`));
             core.setOutput('failure_detected', 'true');
-            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({
-              name: f.name,
-              id: f.id,
-              html_url: f.html_url,
-              details_url: f.details_url,
-              external_id: f.external_id || ''
-            }))));
+            core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
 
   # STEP 2: Process each failure found in Job 1.
   process-failed-builds:
@@ -124,3 +100,52 @@ jobs:
           name: logs-${{ matrix.name }}-${{ steps.parse_build_info.outputs.build_id }}
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
+
+  # STEP 3: Post the final comment, using the proven logic.
+  post-pr-comment:
+    needs: [detect-build-failure, process-failed-builds]
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      issues: write  
+    steps:
+      - name: Compose and post PR comment with artifact links
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
+        with:
+          github-token: ${{ secrets.GH_BOT_TOKEN }}
+          script: |
+            const prNumber = process.env.PR_NUMBER;
+            if (!prNumber) {
+              core.info('No PR number was passed from the detection job. Skipping.');
+              return;
+            }
+            const { owner, repo } = context.repo;
+            const run_id = context.runId;
+            const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
+            const logArtifacts = artifacts.artifacts.filter(a => a.name.startsWith('logs-'));
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNumber });
+            const botLogin = 'Ganga4060'; // Your bot's username
+            const existing = comments.find(c => c.body && c.body.includes('**Download Error logs:**'));
+            if (logArtifacts.length > 0) {
+              let body = '🔗 **Download Error logs:**\n\n';
+              const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/#artifacts`;
+              for (const artifact of logArtifacts) {
+                const closingParenIndex = artifact.name.lastIndexOf(')');
+                const displayName = (closingParenIndex !== -1) ? artifact.name.substring(0, closingParenIndex + 1) : artifact.name;
+                body += `- [${displayName}](${url})\n`;
+              }
+              if (existing) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+                core.info(`Updated existing comment in PR #${prNumber}.`);
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
+                core.info(`Posted new comment in PR #${prNumber}.`);
+              }
+            } else if (existing) {
+              await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+              core.info(`Deleted previous failure comment in PR #${prNumber} as all tests now pass.`);
+            } else {
+              core.info('No failures found and no existing comment to delete.');
+            }
