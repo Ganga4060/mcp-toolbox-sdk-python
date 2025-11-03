@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # STEP 1: Find any and all failures that match our prefixes.
+  # STEP 1: Find any and all failures .
   detect-build-failure:
     name: Detect Cloud Build Failures
     runs-on: ubuntu-latest
