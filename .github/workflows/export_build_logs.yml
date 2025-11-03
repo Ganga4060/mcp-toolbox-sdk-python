@@ -101,7 +101,7 @@ jobs:
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
 
-  # STEP 3: Post the final comment, using the proven logic.
+  # STEP 3: Post the comment with artifact links.
   post-pr-comment:
     needs: [detect-build-failure, process-failed-builds]
     runs-on: ubuntu-latest
