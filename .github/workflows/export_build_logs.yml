@@ -130,8 +130,8 @@ jobs:
             const existing = comments.find(c => c.body && c.body.includes('**Download Error logs:**'));
             if (logArtifacts.length > 0) {
               let body = '🔗 **Download Error logs:**\n\n';
-              const url = `https://github.com/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
               for (const artifact of logArtifacts) {
+                const url = `https://github.com/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
                 const closingParenIndex = artifact.name.lastIndexOf(')');
                 const displayName = (closingParenIndex !== -1) ? artifact.name.substring(0, closingParenIndex + 1) : artifact.name;
                 body += `- [${displayName}](${url})\n`;
