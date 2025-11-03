@@ -131,7 +131,7 @@ jobs:
             if (logArtifacts.length > 0) {
               let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
-                const url = `https://github.com/${owner}/${repo}/actions/artifacts/${artifact.id}/zip`;
+                const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
                 const closingParenIndex = artifact.name.lastIndexOf(')');
                 const displayName = (closingParenIndex !== -1) ? artifact.name.substring(0, closingParenIndex + 1) : artifact.name;
                 body += `- [${displayName}](${url})\n`;
