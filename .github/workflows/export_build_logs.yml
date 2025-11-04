@@ -85,10 +85,19 @@ jobs:
         id: fetch_cloud_build_logs
         run: |
           LOG_FILE="cloudbuild_error_logs.txt"
-          gcloud builds log "${{ steps.parse_build_info.outputs.build_id }}" --project="${{ steps.parse_build_info.outputs.project_id }}" > "${LOG_FILE}" 2>&1 || true
-          if [ ! -s "${LOG_FILE}" ]; then
-            echo "Warning: No logs found with gcloud builds log." > "${LOG_FILE}"
+          GCLOUD_OUTPUT=$(gcloud builds log "${{ steps.parse_build_info.outputs.build_id }}" --project="${{ steps.parse_build_info.outputs.project_id }}" 2>&1)
+          
+          if echo "$GCLOUD_OUTPUT" | grep -q "ERROR"; then
+            echo "Failed to fetch logs from gcloud builds log." > "${LOG_FILE}"
+            echo "--- gcloud command output ---" >> "${LOG_FILE}"
+            echo "$GCLOUD_OUTPUT" >> "${LOG_FILE}"
+            echo "-----------------------------" >> "${LOG_FILE}"
             echo "Log URL: ${{ matrix.details_url }}" >> "${LOG_FILE}"
+          elif [ -z "$GCLOUD_OUTPUT" ]; then
+            echo "Warning: No logs found or gcloud command returned empty output." > "${LOG_FILE}"
+            echo "Log URL: ${{ matrix.details_url }}" >> "${LOG_FILE}"
+          else
+            echo "$GCLOUD_OUTPUT" > "${LOG_FILE}"
           fi
           echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
       - name: Upload Logs as Artifact
@@ -104,8 +113,7 @@ jobs:
     if: always()
     permissions:
       issues: write  
-    steps:
-      # Get Bot Login from Token for dynamic botLogin detection 
+    steps: 
       - name: Get Bot Login from Token
         id: get_bot_login
         uses: actions/github-script@v7
@@ -119,7 +127,6 @@ jobs:
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
-          # Use the dynamically fetched bot login
           BOT_LOGIN: ${{ steps.get_bot_login.outputs.bot_login }}
         with:
           github-token: ${{ secrets.GH_BOT_TOKEN }}
@@ -140,17 +147,13 @@ jobs:
               let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
                 const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
-                // Find the index of the first opening parenthesis
                 const openParenIndex = artifact.name.indexOf('(');
                 let displayName;
                 if (openParenIndex !== -1) {
-                  // Get the substring from the beginning up to (but not including) the opening parenthesis
                   displayName = artifact.name.substring(0, openParenIndex);
                 } else {
-                  // If no parenthesis, use the full name (or remove 'logs-' prefix)
                   displayName = artifact.name.replace(/^logs-/, ''); 
                 }
-                // Trim any trailing whitespace that might result from the substring
                 displayName = displayName.trim();
 
                 body += `- [${displayName}](${url})\n`;
