@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # STEP 1: Find any and all failures .
   detect-build-failure:
     name: Detect Cloud Build Failures
     runs-on: ubuntu-latest
@@ -60,7 +61,7 @@ jobs:
             core.setOutput('failure_detected', 'true');
             core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
 
-  
+  # STEP 2: Process each failure found in Job 1
   process-failed-builds:
     needs: detect-build-failure
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
@@ -110,6 +111,7 @@ jobs:
           path: ${{ steps.fetch_cloud_build_logs.outputs.log_file_name }}
           retention-days: 7
 
+  # JOB 3:  Comment with artifact links on the PR
   post-pr-comment:
     needs: [detect-build-failure, process-failed-builds]
     runs-on: ubuntu-latest
