@@ -131,7 +131,7 @@ jobs:
           PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
           BOT_LOGIN: ${{ steps.get_bot_login.outputs.bot_login }}
         with:
-          github-token: ${{ secrets.GH_BOT_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prNumber = process.env.PR_NUMBER;
             if (!prNumber) {
