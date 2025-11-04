@@ -145,7 +145,7 @@ jobs:
                 // Find the index of the first opening parenthesis
                 const openParenIndex = artifact.name.indexOf('(');
                 let displayName;
-                if (openPparenIndex !== -1) {
+                if (openParenIndex !== -1) {
                   // Get the substring from the beginning up to (but not including) the opening parenthesis
                   displayName = artifact.name.substring(0, openParenIndex);
                 } else {
