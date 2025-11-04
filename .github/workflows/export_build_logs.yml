@@ -1,11 +1,9 @@
 name: Export Cloud Build Failure Logs
 
-# This trigger fires ONCE after all checks for a commit are complete.
 on:
   check_suite:
     types: [completed]
 
-# Prevents race conditions from multiple rapid commits on the same PR.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -109,10 +107,22 @@ jobs:
     permissions:
       issues: write  
     steps:
+      # Get Bot Login from Token for dynamic botLogin detection 
+      - name: Get Bot Login from Token
+        id: get_bot_login
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GH_BOT_TOKEN }}
+          script: |
+            const { data: user } = await github.rest.users.getAuthenticated();
+            core.setOutput('bot_login', user.login);
+
       - name: Compose and post PR comment with artifact links
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
+          # Use the dynamically fetched bot login
+          BOT_LOGIN: ${{ steps.get_bot_login.outputs.bot_login }}
         with:
           github-token: ${{ secrets.GH_BOT_TOKEN }}
           script: |
@@ -126,14 +136,25 @@ jobs:
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
             const logArtifacts = artifacts.artifacts.filter(a => a.name.startsWith('logs-'));
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNumber });
-            const botLogin = 'Ganga4060'; // Your bot's username
+            const botLogin = process.env.BOT_LOGIN; // Using the dynamic bot login
             const existing = comments.find(c => c.body && c.body.includes('**Download Error logs:**'));
             if (logArtifacts.length > 0) {
               let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
                 const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
-                const closingParenIndex = artifact.name.lastIndexOf(')');
-                const displayName = (closingParenIndex !== -1) ? artifact.name.substring(0, closingParenIndex + 1) : artifact.name;
+                // Find the index of the first opening parenthesis
+                const openParenIndex = artifact.name.indexOf('(');
+                let displayName;
+                if (openPparenIndex !== -1) {
+                  // Get the substring from the beginning up to (but not including) the opening parenthesis
+                  displayName = artifact.name.substring(0, openParenIndex);
+                } else {
+                  // If no parenthesis, use the full name (or remove 'logs-' prefix)
+                  displayName = artifact.name.replace(/^logs-/, ''); 
+                }
+                // Trim any trailing whitespace that might result from the substring
+                displayName = displayName.trim();
+
                 body += `- [${displayName}](${url})\n`;
               }
               if (existing) {
