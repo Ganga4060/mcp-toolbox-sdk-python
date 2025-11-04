@@ -107,7 +107,7 @@ jobs:
     permissions:
       issues: write  
     steps:
-      # Get Bot Login from Token for dynamic botLogin detection 
+      # Get Bot Login from Token for dynamic botLogin detection .
       - name: Get Bot Login from Token
         id: get_bot_login
         uses: actions/github-script@v7
