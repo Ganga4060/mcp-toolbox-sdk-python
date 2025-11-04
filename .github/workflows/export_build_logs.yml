@@ -1,5 +1,11 @@
 name: Export Cloud Build Failure Logs
 
+permissions: 
+  contents: read
+  checks: read
+  issues: write 
+  pull-requests: write 
+
 on:
   check_suite:
     types: [completed]
@@ -12,9 +18,6 @@ jobs:
   detect-build-failure:
     name: Detect Cloud Build Failures
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: read
     outputs:
       failure_detected: ${{ steps.detect_failures.outputs.failure_detected }}
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
@@ -111,25 +114,13 @@ jobs:
     needs: [detect-build-failure, process-failed-builds]
     runs-on: ubuntu-latest
     if: always()
-    permissions:
-      issues: write  
-    steps: 
-      - name: Get Bot Login from Token
-        id: get_bot_login
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GH_BOT_TOKEN }}
-          script: |
-            const { data: user } = await github.rest.users.getAuthenticated();
-            core.setOutput('bot_login', user.login);
-
+    steps:
       - name: Compose and post PR comment with artifact links
         uses: actions/github-script@v7
         env:
           PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
-          BOT_LOGIN: ${{ steps.get_bot_login.outputs.bot_login }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }} 
           script: |
             const prNumber = process.env.PR_NUMBER;
             if (!prNumber) {
@@ -141,8 +132,12 @@ jobs:
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
             const logArtifacts = artifacts.artifacts.filter(a => a.name.startsWith('logs-'));
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNumber });
-            const botLogin = process.env.BOT_LOGIN; // Using the dynamic bot login
-            const existing = comments.find(c => c.body && c.body.includes('**Download Error logs:**'));
+            
+            // The botLogin is 'github-actions' when using GITHUB_TOKEN
+            // You should filter comments by user.login for robustness
+            const botLogin = 'github-actions[bot]'; 
+            const existing = comments.find(c => c.user.login === 'github-actions[bot]' && c.body && c.body.includes('**Download Error logs:**'));
+            
             if (logArtifacts.length > 0) {
               let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
