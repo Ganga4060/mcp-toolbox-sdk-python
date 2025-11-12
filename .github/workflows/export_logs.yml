@@ -48,28 +48,22 @@ jobs:
               'llamaindex-python-sdk-pr-',
             ];
             let pr_number = undefined;
-            // Try to get PR number from payload
-            if (context.payload.check_suite && context.payload.check_suite.pull_requests && context.payload.check_suite.pull_requests.length > 0) {
-              pr_number = context.payload.check_suite.pull_requests[0].number;
-            }
-            // If not found, search for PR by commit SHA
-            if (!pr_number) {
-              const { owner, repo } = context.repo;
-              const sha = context.payload.check_suite.head_sha;
-              const { data: prs } = await github.rest.pulls.list({
-                owner,
-                repo,
-                state: 'open',
-                per_page: 100
-              });
-              // Find PR where head sha matches
-              const match = prs.find(pr => pr.head && pr.head.sha === sha);
-              if (match) {
-                pr_number = match.number;
-              }
+            // Only use commit SHA-based PR detection
+            const { owner, repo } = context.repo;
+            const sha = context.payload.check_suite.head_sha;
+            const { data: prs } = await github.rest.pulls.list({
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100
+            });
+            // Find PR where head sha matches
+            const match = prs.find(pr => pr.head && pr.head.sha === sha);
+            if (match) {
+              pr_number = match.number;
             }
             if (!pr_number) {
-              core.info('No PR found for this check suite or commit. Skipping.');
+              core.info('No PR found for this commit. Skipping.');
               core.setOutput('failure_detected', 'false');
               return;
             }
