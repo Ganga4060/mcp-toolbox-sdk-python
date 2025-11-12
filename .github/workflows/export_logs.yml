@@ -43,49 +43,48 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const prefixes = [
-              'core-python-sdk-pr-',
-              'langchain-python-sdk-pr-',
-              'llamaindex-python-sdk-pr-',
+            'core-python-sdk-pr-',
+            'langchain-python-sdk-pr-',
+            'llamaindex-python-sdk-pr-',
             ];
             let pr_number = undefined;
             // Only use commit SHA-based PR detection
             const { owner, repo } = context.repo;
             const sha = context.payload.check_suite.head_sha;
             const { data: prs } = await github.rest.pulls.list({
-              owner,
-              repo,
-              state: 'open',
-              per_page: 100
+            owner,
+            repo,
+            state: 'open',
+            per_page: 100
             });
             // Find PR where head sha matches
             const match = prs.find(pr => pr.head && pr.head.sha === sha);
             if (match) {
-              pr_number = match.number;
+            pr_number = match.number;
             }
             if (!pr_number) {
-              core.info('No PR found for this commit. Skipping.');
-              core.setOutput('failure_detected', 'false');
-              return;
+            core.info('No PR found for this commit. Skipping.');
+            core.setOutput('failure_detected', 'false');
+            return;
             }
             core.setOutput('pr_number', pr_number.toString());
-            const { owner, repo } = context.repo;
-            const sha = context.payload.check_suite.head_sha;
+            // Remove this line:
+            // const { owner, repo } = context.repo;
             const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
             const failed = checks.check_runs.filter(
-              c =>
+            c =>
                 prefixes.some(prefix => c.name.startsWith(prefix)) &&
                 c.status === 'completed' &&
                 c.conclusion === 'failure'
             );
             if (failed.length === 0) {
-              core.info('No failed Cloud Build checks detected.');
-              core.setOutput('failure_detected', 'false');
-              return;
+            core.info('No failed Cloud Build checks detected.');
+            core.setOutput('failure_detected', 'false');
+            return;
             }
             core.info(`Detected ${failed.length} failed build(s).`);
             core.setOutput('failure_detected', 'true');
             core.setOutput('failed_checks', JSON.stringify(failed.map(f => ({ name: f.name, id: f.id, html_url: f.html_url, details_url: f.details_url, external_id: f.external_id || '' }))));
-  
   process-failed-builds:
     needs: detect-build-failure
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
