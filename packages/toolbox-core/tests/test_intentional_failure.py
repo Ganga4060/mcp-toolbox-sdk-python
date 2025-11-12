@@ -1,2 +1,2 @@
 def test_intentional_failure():
-    assert False, "This test is to fail"
+    assert False, "This test is to fail."
