@@ -60,6 +60,8 @@ jobs:
       - name: Detect all failed Cloud Build checks
         id: detect_failures
         uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ steps.detect_pr_number.outputs.pr_number }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -68,13 +70,13 @@ jobs:
               'langchain-python-sdk-pr-',
               'llamaindex-python-sdk-pr-',
             ];
-            const { owner, repo } = context.repo;
-            const sha = context.payload.check_suite.head_sha;
-            const { pr_number } = process.env;
+            const pr_number = process.env.PR_NUMBER;
             if (!pr_number) {
               core.setOutput('failure_detected', 'false');
               return;
             }
+            const { owner, repo } = context.repo;
+            const sha = context.payload.check_suite.head_sha;
             const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
             const failed = checks.check_runs.filter(
               c =>
