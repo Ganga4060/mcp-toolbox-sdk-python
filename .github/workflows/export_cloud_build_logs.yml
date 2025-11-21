@@ -39,11 +39,15 @@ jobs:
       - name: Install GitHub CLI
         run: sudo apt-get update && sudo apt-get install -y gh
 
+      - name: Ensure repo root
+        run: cd ${{ github.workspace }}
+
       - name: Detect PR number using gh CLI
         id: detect_pr_number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cd ${{ github.workspace }}
           PR_NUMBER=$(gh pr list --search "${{ github.event.check_suite.head_sha }}" --state open --json number --jq '.[0].number')
           if [ -z "$PR_NUMBER" ]; then
             echo "No associated PR found."
