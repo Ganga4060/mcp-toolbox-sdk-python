@@ -13,12 +13,11 @@
 # limitations under the License
 name: Export Cloud Build Failure Logs
 
-permissions:
+permissions: 
   contents: read
   checks: read
-  actions: read
-  issues: write
-  pull-requests: write
+  issues: write 
+  pull-requests: write 
 
 on:
   check_suite:
@@ -36,38 +35,27 @@ jobs:
       failure_detected: ${{ steps.detect_failures.outputs.failure_detected }}
       failed_checks: ${{ steps.detect_failures.outputs.failed_checks }}
       pr_number: ${{ steps.detect_pr_number.outputs.pr_number }}
-      secret_available: ${{ steps.secret_flag.outputs.secret_available }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Cloud Build secret availability
-        id: secret_flag
-        run: |
-          if [ -n "${{ secrets.GCLOUD_SERVICE_KEY }}" ]; then
-            echo "Secret available";
-            echo "secret_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "Secret NOT available (likely fork PR).";
-            echo "secret_available=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y gh
 
-      - name: Detect PR number via API
+      - name: Detect PR number using gh CLI
         id: detect_pr_number
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const sha = context.payload.check_suite.head_sha;
-            const { owner, repo } = context.repo;
-            const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha });
-            if (!prs.data.length) {
-              core.info(`No PR found for commit ${sha}`);
-              return; // pr_number output stays empty
-            }
-            const pr = prs.data[0];
-            core.info(`Associated PR #${pr.number}`);
-            core.setOutput('pr_number', String(pr.number));
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=$(gh pr list --search "${{ github.event.check_suite.head_sha }}" --state open --json number --jq '.[0].number')
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No associated PR found."
+            echo "failure_detected=false" >> $GITHUB_OUTPUT
+            exit 0
+          else
+            echo "PR Number is $PR_NUMBER"
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          fi
 
       - name: Detect all failed Cloud Build checks
         id: detect_failures
@@ -114,35 +102,20 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
     steps:
-      - name: Ensure secret available (skip log retrieval if not)
-        id: secret_gate
-        run: |
-          if [ -n "${{ env.GCLOUD_SERVICE_KEY }}" ]; then
-            echo "secret_available=true" >> $GITHUB_OUTPUT
-          else
-            echo "secret_available=false" >> $GITHUB_OUTPUT
-          fi
       - name: Parse build ID and set project ID
         id: parse_build_info
         run: |
           details_url="${{ matrix.details_url }}"
-          ext_id='${{ matrix.external_id }}'
-          if [ -n "$ext_id" ]; then
-            build_id="$ext_id"
-          else
-            build_id=$(echo "$details_url" | sed -n 's#.*/builds/\([^?]*\).*#\1#p')
-          fi
+          build_id=$(echo "$details_url" | sed -n 's#.*/builds/\([^?]*\).*#\1#p')
           project_id=$(echo '${{ env.GCLOUD_SERVICE_KEY }}' | jq -r '.project_id')
           echo "Build ID: $build_id"
           echo "build_id=$build_id" >> $GITHUB_OUTPUT
           echo "project_id=$project_id" >> $GITHUB_OUTPUT
       - name: Authenticate to Google Cloud
-        if: steps.secret_gate.outputs.secret_available == 'true'
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           credentials_json: ${{ env.GCLOUD_SERVICE_KEY }}
       - name: Fetch Cloud Build logs
-        if: steps.secret_gate.outputs.secret_available == 'true'
         id: fetch_cloud_build_logs
         run: |
           LOG_FILE="cloudbuild_error_logs.txt"
@@ -162,7 +135,6 @@ jobs:
           fi
           echo "log_file_name=${LOG_FILE}" >> $GITHUB_OUTPUT
       - name: Upload Logs as Artifact
-        if: steps.secret_gate.outputs.secret_available == 'true'
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         with:
           name: logs-${{ matrix.name }}-${{ steps.parse_build_info.outputs.build_id }}
@@ -178,8 +150,6 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ needs.detect-build-failure.outputs.pr_number }}
-          FAILED_CHECKS: ${{ needs.detect-build-failure.outputs.failed_checks }}
-          SECRET_AVAILABLE: ${{ needs.detect-build-failure.outputs.secret_available }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }} 
           script: |
@@ -193,12 +163,14 @@ jobs:
             const { data: artifacts } = await github.rest.actions.listWorkflowRunArtifacts({ owner, repo, run_id });
             const logArtifacts = artifacts.artifacts.filter(a => a.name.startsWith('logs-'));
             const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: prNumber });
-            const existing = comments.find(c => c.user.login === 'github-actions[bot]' && c.body && c.body.includes('<!-- cloud-build-log-bot -->'));
-            const secretAvailable = process.env.SECRET_AVAILABLE === 'true';
-            const failedChecks = (() => { try { return JSON.parse(process.env.FAILED_CHECKS || '[]'); } catch { return []; } })();
-
+            
+            // The botLogin is 'github-actions' when using GITHUB_TOKEN
+            // You should filter comments by user.login for robustness
+            const botLogin = 'github-actions[bot]'; 
+            const existing = comments.find(c => c.user.login === 'github-actions[bot]' && c.body && c.body.includes('**Download Error logs:**'));
+            
             if (logArtifacts.length > 0) {
-              let body = '<!-- cloud-build-log-bot -->\n🔗 **Download Error logs:**\n\n';
+              let body = '🔗 **Download Error logs:**\n\n';
               for (const artifact of logArtifacts) {
                 const url = `https://github.com/${owner}/${repo}/actions/runs/${run_id}/artifacts/${artifact.id}`;
                 const openParenIndex = artifact.name.indexOf('(');
@@ -206,9 +178,10 @@ jobs:
                 if (openParenIndex !== -1) {
                   displayName = artifact.name.substring(0, openParenIndex);
                 } else {
-                  displayName = artifact.name.replace(/^logs-/, '');
+                  displayName = artifact.name.replace(/^logs-/, ''); 
                 }
                 displayName = displayName.trim();
+
                 body += `- [${displayName}](${url})\n`;
               }
               if (existing) {
@@ -218,24 +191,9 @@ jobs:
                 await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
                 core.info(`Posted new comment in PR #${prNumber}.`);
               }
-            } else if (failedChecks.length > 0 && !secretAvailable) {
-              let body = '<!-- cloud-build-log-bot -->\n Cloud Build logs unavailable for this PR (fork PRs do not receive repository secrets).\n\n**Failed checks:**\n';
-              for (const f of failedChecks) {
-                const name = f.name;
-                const url = f.details_url || f.html_url || '';
-                body += `- ${name}${url ? ` [details](${url})` : ''}\n`;
-              }
-              if (existing) {
-                await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
-                core.info(`Updated comment with secret unavailability notice in PR #${prNumber}.`);
-              } else {
-                await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body });
-                core.info(`Posted secret unavailability notice in PR #${prNumber}.`);
-              }
-            } else if (existing && failedChecks.length === 0) {
+            } else if (existing) {
               await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
               core.info(`Deleted previous failure comment in PR #${prNumber} as all tests now pass.`);
             } else {
               core.info('No failures found and no existing comment to delete.');
             }
-
