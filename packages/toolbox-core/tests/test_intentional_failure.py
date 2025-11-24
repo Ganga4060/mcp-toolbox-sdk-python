@@ -31,6 +31,6 @@ def test_intentional_failure_for_workflow_verification():
     Remove or skip this test once workflow verification is complete.
     """
     
-    assert False, "Intentional failure to test Cloud Build log export workflow"
+    assert False, "Intentional failure to test Cloud Build log export workflow."
 
 
