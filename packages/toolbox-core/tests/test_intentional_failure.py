@@ -14,7 +14,7 @@
 
 """
 Intentional test failure to verify Cloud Build log export workflow.
-This test is designed to fail to trigger the export_cloud_build_logs.yml workflow.
+This test is designed to fail to trigger the export_cloud_build_logs.yml workflow testing .
 """
 
 import pytest
