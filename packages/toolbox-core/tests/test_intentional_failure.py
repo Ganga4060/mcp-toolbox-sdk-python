@@ -14,7 +14,7 @@
 
 """
 Intentional test failure to verify Cloud Build log export workflow.
-This test is designed to fail to trigger the export_cloud_build_logs.yml workflow.
+This test is designed to fail to trigger the export_cloud_build_logs.yml workflow testing .
 """
 
 import pytest
@@ -31,6 +31,6 @@ def test_intentional_failure_for_workflow_verification():
     Remove or skip this test once workflow verification is complete.
     """
     
-    assert False, "Intentional failure to test Cloud Build log export workflow"
+    assert False, "Intentional failure to test Cloud Build log export workflow."
 
 
