@@ -14,7 +14,7 @@
 
 """
 Intentional failing test to trigger the Cloud Build failure log workflow.
-This test is meant to verify that the error handling and log export workflow functions correctly.
+This test is meant to verify that the error handling and log export workflow functions correctly
 """
 
 import pytest
