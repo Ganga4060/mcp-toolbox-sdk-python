@@ -76,6 +76,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ steps.detect_pr_number.outputs.pr_number }}
+          EVENT_NAME: ${{ github.event_name }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -90,7 +91,20 @@ jobs:
               return;
             }
             const { owner, repo } = context.repo;
-            const sha = context.payload.check_suite.head_sha;
+            
+            // For manual workflow_dispatch, we need to get the SHA from the PR
+            let sha;
+            if (process.env.EVENT_NAME === 'workflow_dispatch') {
+              // Get the latest commit SHA for the PR
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+              sha = pr.head.sha;
+              core.info(`Using PR head SHA from workflow_dispatch: ${sha}`);
+            } else {
+              // For check_suite events, use the check_suite SHA
+              sha = context.payload.check_suite.head_sha;
+              core.info(`Using check_suite SHA: ${sha}`);
+            }
+            
             const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
             const failed = checks.check_runs.filter(
               c =>
