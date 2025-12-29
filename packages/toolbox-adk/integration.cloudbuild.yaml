@@ -15,7 +15,7 @@
 steps:
   - id: Install library requirements
     name: 'python:${_VERSION}'
-    dir: 'packages/toolbox-langchain'
+    dir: 'packages/toolbox-adk'
     args:
       - install
       - '-r'
@@ -27,12 +27,12 @@ steps:
     args:
       - install
       - '-e'
-      - 'packages/toolbox-langchain[test]'
+      - 'packages/toolbox-adk[test]'
       - '--user'
     entrypoint: pip
   - id: Run integration tests
     name: 'python:${_VERSION}'
-    dir: 'packages/toolbox-langchain'
+    dir: 'packages/toolbox-adk'
     env:
       - TOOLBOX_URL=$_TOOLBOX_URL
       - TOOLBOX_VERSION=$_TOOLBOX_VERSION
@@ -41,11 +41,12 @@ steps:
     args:
       - '-c'
       - >-
-        python -m pytest --cov=src/toolbox_langchain --cov-report=term --cov-fail-under=90 tests/
+        python -m pytest --cov=src/toolbox_adk --cov-report=term --cov-fail-under=90 tests/
     entrypoint: /bin/bash
 options:
   logging: CLOUD_LOGGING_ONLY
 substitutions:
   _VERSION: '3.13'
-  _TOOLBOX_VERSION: '0.24.0'
+  # Default values (can be overridden by triggers)
+  _TOOLBOX_VERSION: '0.22.0'
   _TOOLBOX_MANIFEST_VERSION: '34'
