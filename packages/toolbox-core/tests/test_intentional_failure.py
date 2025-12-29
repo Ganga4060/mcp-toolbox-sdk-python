@@ -17,5 +17,5 @@
 
 def test_intentional_failure_to_trigger_workflow():
     """This test intentionally fails to test the workflow."""
-    assert False, "Intentional failure to trigger Cloud Build failure detection workflow"
+    assert False, "Intentional failure to trigger Cloud Build failure detection workflow."
 
