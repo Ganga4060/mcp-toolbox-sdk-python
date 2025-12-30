@@ -125,7 +125,7 @@ jobs:
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
     runs-on: ubuntu-latest
     env:
-      GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
+      GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }} # Service account JSON with permissions to access Cloud Build logs
     strategy:
       matrix:
         include: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
