@@ -22,6 +22,12 @@ permissions:
 on:
   check_suite:
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request number to process'
+        required: false
+        type: number
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
@@ -47,14 +53,22 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=$(gh pr list --search "${{ github.event.check_suite.head_sha }}" --state open --json number --jq '.[0].number')
-          if [ -z "$PR_NUMBER" ]; then
-            echo "No associated PR found."
-            echo "failure_detected=false" >> $GITHUB_OUTPUT
-            exit 0
-          else
-            echo "PR Number is $PR_NUMBER"
+          # Check if manually triggered with PR number input
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ github.event.inputs.pr_number }}" ]; then
+            PR_NUMBER=${{ github.event.inputs.pr_number }}
+            echo "Using manually provided PR number: $PR_NUMBER"
             echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          else
+            # Auto-detect PR from check suite
+            PR_NUMBER=$(gh pr list --search "${{ github.event.check_suite.head_sha }}" --state open --json number --jq '.[0].number')
+            if [ -z "$PR_NUMBER" ]; then
+              echo "No associated PR found."
+              echo "failure_detected=false" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "PR Number is $PR_NUMBER"
+              echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+            fi
           fi
 
       - name: Detect all failed Cloud Build checks
@@ -62,6 +76,7 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PR_NUMBER: ${{ steps.detect_pr_number.outputs.pr_number }}
+          EVENT_NAME: ${{ github.event_name }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -76,7 +91,20 @@ jobs:
               return;
             }
             const { owner, repo } = context.repo;
-            const sha = context.payload.check_suite.head_sha;
+            
+            // For manual workflow_dispatch, we need to get the SHA from the PR
+            let sha;
+            if (process.env.EVENT_NAME === 'workflow_dispatch') {
+              // Get the latest commit SHA for the PR
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: pr_number });
+              sha = pr.head.sha;
+              core.info(`Using PR head SHA from workflow_dispatch: ${sha}`);
+            } else {
+              // For check_suite events, use the check_suite SHA
+              sha = context.payload.check_suite.head_sha;
+              core.info(`Using check_suite SHA: ${sha}`);
+            }
+            
             const { data: checks } = await github.rest.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
             const failed = checks.check_runs.filter(
               c =>
@@ -97,7 +125,7 @@ jobs:
     if: needs.detect-build-failure.outputs.failure_detected == 'true'
     runs-on: ubuntu-latest
     env:
-      GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }}
+      GCLOUD_SERVICE_KEY: ${{ secrets.GCLOUD_SERVICE_KEY }} # Service account JSON with permissions to access Cloud Build logs.
     strategy:
       matrix:
         include: ${{ fromJson(needs.detect-build-failure.outputs.failed_checks) }}
